@@ -36,7 +36,7 @@ def IsExistTag(conn,tag):
 	c = conn.cursor()
 	c.execute('''SELECT tag FROM tags WHERE tag='{0}'; '''.format(tag_s))
 	t = c.fetchone()
-	return len(t)!=0
+	return t!=None
 def GetAllTags(conn):
 	c = conn.cursor()
 	c.execute('SELECT tag FROM tags')
@@ -69,6 +69,12 @@ def filterNewIds(conn,tag : list,ids) -> int:
 		if int(id) not in pset:
 			newids.append(id)
 	return newids
+def deleteTag(conn,tag: list):
+	tid = _getTagId(conn,tag)
+	c = conn.cursor()
+	c.execute('''DELETE FROM tag_ids WHERE tag_ids.tid = {0};'''.format(tid))
+	c.execute('''DELETE FROM tags WHERE tags.tid = {0};'''.format(tid))
+	conn.commit()
 # UI funcs
 def checkUpdates():
 	conn = CheckDBSanity()
@@ -127,8 +133,7 @@ def commitFromPage(tag,page):
 				break
 			else:
 				for id in newIds:
-					if int(id) <= pidUB:
-						ToCommitIds.append(id)
+					ToCommitIds.append(id)
 	print("Collected {0} unseen pictures, start commit".format(len(ToCommitIds)))
 	commitIds(conn,tag,ToCommitIds)
 	print("Commit Finished")
@@ -141,7 +146,11 @@ def SubscribeTag(tag : list):
 		print("Successsful subscribe tag {0}".format(tag))
 def UnsubsribeTag(tag: list):
 	# Delete all tag_ids has this tag, and remove tag
-	pass
+	conn = CheckDBSanity()
+	if not IsExistTag(conn,tag):
+		print("Does not exist this tag.")
+	else:
+		deleteTag(conn,tag)
 def ListTag():
 	conn = CheckDBSanity()
 	MarkTags = GetAllTags(conn)
@@ -149,7 +158,7 @@ def ListTag():
 	print(MarkTags)
 def Help():
 	print("""0-> checkTagUpdates(),
-1-> ListTag, 2-> SubscribeTagX, 3-> UnsubscribeTagX(not),
+1-> ListTag, 2-> SubscribeTagX, 3-> UnsubscribeTagX,
 4-> commitFromPageN,   5-> commitFromPidX,  6-> Help,
 9-> Exit""")
 if __name__ == '__main__':
@@ -159,11 +168,11 @@ if __name__ == '__main__':
 	while True:
 		Sel = int(input(">>"))
 		if(4<=Sel<=5):
-			Tag = deserializeTag(input("Tag>>"))
-			Num = int(input("Pid>>"))
+			Tag = input("Tag>>").split(" ")
+			Num = int(input("PageNum or PID>>"))
 			Dic[Sel](Tag,Num)
 		elif (2<=Sel<=3):
-			Tag = deserializeTag(input("Tag>>"))
+			Tag = input("Tag>>").split(" ")
 			Dic[Sel](Tag)
 		else:
 			Dic[Sel]()
