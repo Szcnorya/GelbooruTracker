@@ -60,8 +60,13 @@ class GelbooruMan:
             self.localstore.tagman = TagManager()
         return self.localstore.tagman
 
+    def session(self):
+        if not hasattr(self.localstore, "session"):
+            self.localstore.session = requests.Session()
+        return self.localstore.session
+
     def peekTagPagePid(self,tag:list,page:int) -> int:
-        r = requests.get(GelbooruMan.PageUrl(
+        r = self.session().get(GelbooruMan.PageUrl(
             GelbooruMan.SearchUrlByTag(tag), page))
         soup = BeautifulSoup(r.text, 'html.parser')
         pids, _ = GelbooruMan.ParseIdsFromPage(soup)
@@ -95,7 +100,7 @@ class GelbooruMan:
         return NewIds
 
     def updateTagPageThread(self,tag:list, page: int) -> list:
-        r = requests.get(GelbooruMan.PageUrl(
+        r = self.session().get(GelbooruMan.PageUrl(
             GelbooruMan.SearchUrlByTag(tag), page))
         soup = BeautifulSoup(r.text, 'html.parser')
         imgIds, _ = GelbooruMan.ParseIdsFromPage(soup)
@@ -119,6 +124,8 @@ class GelbooruMan:
         ssummary = list(summary.items())
         ssummary.sort(key = lambda x : x[1])
         for tag, newcnt in ssummary:
+            if(newcnt==0):
+                continue
             tag = TagManager.DeserializeTag(tag)
             print("Tag {0} has {1} new items, link: {2}".format(
                 tag, newcnt, GelbooruMan.SearchUrlByTag(tag)))
@@ -290,6 +297,7 @@ def Help():
 4-> commitFromPageN,   5-> commitFromPidX,  6-> Help,
 9-> Exit""")
 if __name__ == '__main__':
+    # logging.basicConfig(level=logging.DEBUG)
     gelman = GelbooruMan()
     Dic = {0: gelman.checkUpdates, 1: gelman.listTag, 2: gelman.subscribeTag, 3: gelman.unsubsribeTag,
            4: gelman.commitFromPage, 5: gelman.commitFromPid, 6: Help, 9: exit}
