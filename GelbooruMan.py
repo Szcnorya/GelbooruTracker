@@ -6,9 +6,22 @@ from functools import partial
 from bs4 import BeautifulSoup
 import itertools
 
+# import time
+# import logging
+# def profile(func):
+#     def wrap(*args, **kwargs):
+#         started_at = time.time()
+#         result = func(*args, **kwargs)
+#         logging.debug("Function %s: %f",func.__name__,time.time() - started_at)
+#         return result
+
+#     return wrap
+
 class GelbooruMan:
     PageFetchLimit = 50
-    ThreadPoolWorkerCount = 8
+    ThreadPoolWorkerCount = 16
+    TagThreadSpike = 8
+    PageThreadSpike = 2
 
     def __init__(self):
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=GelbooruMan.ThreadPoolWorkerCount)
@@ -60,17 +73,22 @@ class GelbooruMan:
 
     def updateTagMan(self):
         MarkTags = self.tagman().GetAllTags()
-        for cur in range(0,len(MarkTags),4):
-            tags = MarkTags[cur:cur+4]
+        for cur in range(0,len(MarkTags),GelbooruMan.TagThreadSpike):
+            tags = MarkTags[cur:cur+GelbooruMan.TagThreadSpike]
             tags_ids = list(self.pool.map(self.updateTagThread,tags))
             for tag,tag_ids in zip(tags,tags_ids):
                 if(len(tag_ids)!=0):
                     self.tagman().AddUncommitedIds(tag,tag_ids)
 
+    def updateTagMan1Tag(self,tag):
+        tag_ids =self.updateTagThread(tag)
+        if(len(tag_ids)!=0):
+            self.tagman().AddUncommitedIds(tag,tag_ids)
+
     def updateTagThread(self,tag : list) -> list:
         NewIds = []
-        for page in range(0, GelbooruMan.PageFetchLimit,4):
-            newPageIds = list(self.pool.map(partial(self.updateTagPageThread,tag),list(range(page,page+4))))
+        for page in range(0, GelbooruMan.PageFetchLimit,GelbooruMan.PageThreadSpike):
+            newPageIds = list(self.pool.map(partial(self.updateTagPageThread,tag),list(range(page,page+GelbooruMan.PageThreadSpike))))
             NewIds += list(itertools.chain.from_iterable(newPageIds))
             if(list(map(len,newPageIds)).count(0)!=0):
                 break
@@ -108,7 +126,7 @@ class GelbooruMan:
     def commitFromPid(self, tag, pidUB):
         if not self.tagman().IsExistTag(tag):
             return
-        self.updateTagMan()
+        self.updateTagMan1Tag(tag)
         ToCommitIds = []
         newIds = self.tagman().GetAllUncommitedIds(tag)
         for id in newIds:
