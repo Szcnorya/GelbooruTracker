@@ -4,7 +4,7 @@ import concurrent.futures
 import threading
 from functools import partial
 from bs4 import BeautifulSoup
-
+import itertools
 
 class GelbooruMan:
     PageFetchLimit = 50
@@ -37,7 +37,7 @@ class GelbooruMan:
     def ParseIdsFromPage(pageSoup) -> list:
         """Function for parsing image ids from Search page."""
         imglist = pageSoup.select('img.preview')
-        imgIds = list(map(lambda x: x.parent['id'][1:], imglist))
+        imgIds = list(map(lambda x: int(x.parent['id'][1:]), imglist))
         # imgHrefs = list(map(lambda x : 'https:' + x.parent['href'],imglist))
         return (imgIds, 0)
 
@@ -47,27 +47,50 @@ class GelbooruMan:
             self.localstore.tagman = TagManager()
         return self.localstore.tagman
 
-    # UI funcs
-    def checkUpdateThread(self, tag, page):
+    def peekTagPagePid(self,tag:list,page:int) -> int:
         r = requests.get(GelbooruMan.PageUrl(
             GelbooruMan.SearchUrlByTag(tag), page))
         soup = BeautifulSoup(r.text, 'html.parser')
-        # Do something to the page
-        imgIds, _ = GelbooruMan.ParseIdsFromPage(soup)
-        newcnt = len(self.tagman().FilterNewIds(tag, imgIds))
-        return newcnt
+        pids, _ = GelbooruMan.ParseIdsFromPage(soup)
+        pid = pids[0]
+        for id in pids:
+            if pid < id:
+                pid = id
+        return pid
 
+    def updateTagMan(self):
+        MarkTags = self.tagman().GetAllTags()
+        for cur in range(0,len(MarkTags),4):
+            tags = MarkTags[cur:cur+4]
+            tags_ids = list(self.pool.map(self.updateTagThread,tags))
+            for tag,tag_ids in zip(tags,tags_ids):
+                if(len(tag_ids)!=0):
+                    self.tagman().AddUncommitedIds(tag,tag_ids)
+
+    def updateTagThread(self,tag : list) -> list:
+        NewIds = []
+        for page in range(0, GelbooruMan.PageFetchLimit,4):
+            newPageIds = list(self.pool.map(partial(self.updateTagPageThread,tag),list(range(page,page+4))))
+            NewIds += list(itertools.chain.from_iterable(newPageIds))
+            if(list(map(len,newPageIds)).count(0)!=0):
+                break
+        return NewIds
+
+    def updateTagPageThread(self,tag:list, page: int) -> list:
+        r = requests.get(GelbooruMan.PageUrl(
+            GelbooruMan.SearchUrlByTag(tag), page))
+        soup = BeautifulSoup(r.text, 'html.parser')
+        imgIds, _ = GelbooruMan.ParseIdsFromPage(soup)
+        newIds = self.tagman().FilterNewIds(tag, imgIds)
+        return newIds
+
+    # UI funcs
     def checkUpdates(self):
+        self.updateTagMan()
         MarkTags = self.tagman().GetAllTags()
         summary = {}
         for MarkTag in MarkTags:
-            tag_cnt = 0
-            for page in range(0, GelbooruMan.PageFetchLimit,8):
-                newcnts = list(self.pool.map(partial(self.checkUpdateThread,MarkTag),list(range(page,page+8))))
-                tag_cnt += sum(newcnts)
-                if(newcnts.count(0)!=0):
-                    break
-            summary[TagManager.SerializeTag(MarkTag)] = tag_cnt
+            summary[TagManager.SerializeTag(MarkTag)] = len(self.tagman().GetAllUncommitedIds(MarkTag))
         # Report summary
         print("Updates summary:")
         # Old version deprecated
@@ -82,27 +105,15 @@ class GelbooruMan:
             print("Tag {0} has {1} new items, link: {2}".format(
                 tag, newcnt, GelbooruMan.SearchUrlByTag(tag)))
 
-    def commitThread(self, tag, page):
-        r = requests.get(GelbooruMan.PageUrl(
-                GelbooruMan.SearchUrlByTag(tag), page))
-        soup = BeautifulSoup(r.text, 'html.parser')
-        imgIds, _ = GelbooruMan.ParseIdsFromPage(soup)
-        newIds = self.tagman().FilterNewIds(tag, imgIds)
-        return newIds
-
     def commitFromPid(self, tag, pidUB):
         if not self.tagman().IsExistTag(tag):
             return
+        self.updateTagMan()
         ToCommitIds = []
-        for page in range(0, GelbooruMan.PageFetchLimit):
-            newIds = self.commitThread(tag, page)
-            nCnt = 0
-            for id in newIds:
-                if int(id) <= pidUB:
-                    ToCommitIds.append(id)
-                    nCnt += 1
-            if(nCnt==0):
-                break
+        newIds = self.tagman().GetAllUncommitedIds(tag)
+        for id in newIds:
+            if id <= pidUB:
+                ToCommitIds.append(id)
         if(len(ToCommitIds)!=0):
             print("Collected {0} unseen pictures, start commit.".format(
                 len(ToCommitIds)))
@@ -114,19 +125,8 @@ class GelbooruMan:
     def commitFromPage(self, tag, page):
         if not self.tagman().IsExistTag(tag):
             return
-        ToCommitIds = []
-        for page in range(page, GelbooruMan.PageFetchLimit):
-            newIds = self.commitThread(tag,page)
-            ToCommitIds += newIds
-            if(len(newIds)==0):
-                break
-        if(len(ToCommitIds)!=0):
-            print("Collected {0} unseen pictures, start commit.".format(
-                len(ToCommitIds)))
-            self.tagman().CommitIds(tag, ToCommitIds)
-            print("Commit Finished.")
-        else:
-            print("No unseen pictures, abandon commit.")
+        pidUB = self.peekTagPagePid(tag,page)
+        self.commitFromPid(tag,pidUB)
 
     def subscribeTag(self, tag: list):
         if self.tagman().IsExistTag(tag):
@@ -159,6 +159,7 @@ class TagManager:
         c.execute(
             '''CREATE TABLE IF NOT EXISTS tags (tid INTEGER PRIMARY KEY AUTOINCREMENT, tag TEXT not null, UNIQUE (tag));''')
         c.execute('''CREATE TABLE IF NOT EXISTS tag_ids (tid INTEGER NOT NULL, pid INTEGER NOT NULL, PRIMARY KEY (tid,pid), FOREIGN KEY(tid) REFERENCES tags(tid));''')
+        c.execute('''CREATE TABLE IF NOT EXISTS tag_ids_unread (tid INTEGER NOT NULL, pid INTEGER NOT NULL, PRIMARY KEY (tid,pid), FOREIGN KEY(tid) REFERENCES tags(tid));''')
         conn.commit()
         return conn
 
@@ -199,19 +200,50 @@ class TagManager:
 
     # Queries for Ids
     def CommitIds(self, tag: list, ids: list):
+        if(len(ids)==0):
+            return
         tid = self.GetTagId(tag)
         c = self.conn.cursor()
         c.execute('''INSERT INTO tag_ids VALUES ''' +
                   ",".join(list(map(lambda id: "({0},{1})".format(tid, id), ids))) + ';')
+        c.execute('''DELETE FROM tag_ids_unread WHERE tag_ids_unread.tid = {0} AND tag_ids_unread.pid IN ({1});'''.format(tid,','.join(list(map(str,ids)))))
         self.conn.commit()
 
     def AddUncommitedIds(self, tag: list, ids: list):
-        pass
+        if(len(ids)==0):
+            return
+        tid = self.GetTagId(tag)
+        c = self.conn.cursor()
+        c.execute('''INSERT INTO tag_ids_unread VALUES ''' +
+                  ",".join(list(map(lambda id: "({0},{1})".format(tid, id), ids))) + ';')
+        self.conn.commit()
 
     def GetAllUncommitedIds(self, tag: list) -> list:
-        pass
+        tid = self.GetTagId(tag)
+        c = self.conn.cursor()
+        c.execute(
+            '''SELECT pid FROM tag_ids_unread WHERE tag_ids_unread.tid = {0};'''.format(tid))
+        pids = c.fetchall()
+        pids = [x[0] for x in pids]
+        return pids
 
-    def FilterNewIds(self, tag: list, ids) -> int:
+    def FilterNewIds(self, tag: list, ids: list) -> list:
+        tid = self.GetTagId(tag)
+        c = self.conn.cursor()
+        c.execute(
+            '''SELECT pid FROM tag_ids WHERE tag_ids.tid = {0};'''.format(tid))
+        pids = [x[0] for x in c.fetchall()]
+        c.execute(
+            '''SELECT pid FROM tag_ids_unread WHERE tag_ids_unread.tid = {0};'''.format(tid))
+        pids = pids + [x[0] for x in c.fetchall()]
+        pset = set(pids)
+        newids = []
+        for id in ids:
+            if id not in pset:
+                newids.append(id)
+        return newids
+
+    def FilterUncommitedIds(self, tag: list, ids: list) -> int:
         tid = self.GetTagId(tag)
         c = self.conn.cursor()
         c.execute(
@@ -221,7 +253,7 @@ class TagManager:
         pset = set(pids)
         newids = []
         for id in ids:
-            if int(id) not in pset:
+            if id not in pset:
                 newids.append(id)
         return newids
 
