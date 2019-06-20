@@ -102,7 +102,9 @@ class GelbooruMan:
             jobs = [gevent.spawn(self.updateTagPageThread,tag,p) for p in range(page,page+GelbooruMan.PageThreadSpike)]
             gevent.joinall(jobs,timeout=5)
             newPageIds = [job.value for job in jobs]
-            NewIds += list(itertools.chain.from_iterable(newPageIds))
+            for ids in newPageIds:
+                if ids is not None:
+                    NewIds += ids
             if(list(map(len,newPageIds)).count(0)!=0):
                 break
         return NewIds
