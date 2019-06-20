@@ -1,6 +1,7 @@
+import gevent
+from gevent import monkey; monkey.patch_all()
 import sqlite3
 import requests
-import concurrent.futures
 import threading
 from functools import partial
 from bs4 import BeautifulSoup
@@ -19,13 +20,13 @@ import itertools
 
 class GelbooruMan:
     PageFetchLimit = 50
-    ThreadPoolWorkerCount = 16
-    TagThreadSpike = 8
+    TagThreadSpike = 32
     PageThreadSpike = 2
 
     def __init__(self):
-        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=GelbooruMan.ThreadPoolWorkerCount)
         self.localstore = threading.local()
+        self.sess = requests.Session()
+        self.sess.mount('https://',requests.adapters.HTTPAdapter(pool_connections=64,pool_maxsize=1024))
 
     @staticmethod
     def PageUrl(url, pageNum):
@@ -61,9 +62,10 @@ class GelbooruMan:
         return self.localstore.tagman
 
     def session(self):
-        if not hasattr(self.localstore, "session"):
-            self.localstore.session = requests.Session()
-        return self.localstore.session
+        # if not hasattr(self.localstore, "session"):
+        #     self.localstore.session = requests.Session()
+        # return self.localstore.session
+        return self.sess
 
     def peekTagPagePid(self,tag:list,page:int) -> int:
         r = self.session().get(GelbooruMan.PageUrl(
@@ -80,9 +82,12 @@ class GelbooruMan:
         MarkTags = self.tagman().GetAllTags()
         for cur in range(0,len(MarkTags),GelbooruMan.TagThreadSpike):
             tags = MarkTags[cur:cur+GelbooruMan.TagThreadSpike]
-            tags_ids = list(self.pool.map(self.updateTagThread,tags))
+            # tags_ids = list(self.pool.map(self.updateTagThread,tags))
+            jobs = [gevent.spawn(self.updateTagThread, tag) for tag in tags]
+            gevent.joinall(jobs,timeout=5)
+            tags_ids = [job.value for job in jobs]
             for tag,tag_ids in zip(tags,tags_ids):
-                if(len(tag_ids)!=0):
+                if(tag_ids!=None and len(tag_ids)!=0):
                     self.tagman().AddUncommitedIds(tag,tag_ids)
 
     def updateTagMan1Tag(self,tag):
@@ -93,7 +98,10 @@ class GelbooruMan:
     def updateTagThread(self,tag : list) -> list:
         NewIds = []
         for page in range(0, GelbooruMan.PageFetchLimit,GelbooruMan.PageThreadSpike):
-            newPageIds = list(self.pool.map(partial(self.updateTagPageThread,tag),list(range(page,page+GelbooruMan.PageThreadSpike))))
+            # newPageIds = list(self.pool.map(partial(self.updateTagPageThread,tag),list(range(page,page+GelbooruMan.PageThreadSpike))))
+            jobs = [gevent.spawn(self.updateTagPageThread,tag,p) for p in range(page,page+GelbooruMan.PageThreadSpike)]
+            gevent.joinall(jobs,timeout=5)
+            newPageIds = [job.value for job in jobs]
             NewIds += list(itertools.chain.from_iterable(newPageIds))
             if(list(map(len,newPageIds)).count(0)!=0):
                 break
