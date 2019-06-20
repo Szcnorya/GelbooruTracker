@@ -9,3 +9,4 @@ Type `python3 GelbooruMan.py` and follow the instruction.
 * Python 3.6
 * requests
 * BeautifulSoup4
+* gevent
