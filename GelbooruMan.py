@@ -84,10 +84,10 @@ class GelbooruMan:
             tags = MarkTags[cur:cur+GelbooruMan.TagThreadSpike]
             # tags_ids = list(self.pool.map(self.updateTagThread,tags))
             jobs = [gevent.spawn(self.updateTagThread, tag) for tag in tags]
-            gevent.joinall(jobs,timeout=5)
+            gevent.joinall(jobs)
             tags_ids = [job.value for job in jobs]
             for tag,tag_ids in zip(tags,tags_ids):
-                if(tag_ids!=None and len(tag_ids)!=0):
+                if len(tag_ids)!=0:
                     self.tagman().AddUncommitedIds(tag,tag_ids)
 
     def updateTagMan1Tag(self,tag):
@@ -100,11 +100,9 @@ class GelbooruMan:
         for page in range(0, GelbooruMan.PageFetchLimit,GelbooruMan.PageThreadSpike):
             # newPageIds = list(self.pool.map(partial(self.updateTagPageThread,tag),list(range(page,page+GelbooruMan.PageThreadSpike))))
             jobs = [gevent.spawn(self.updateTagPageThread,tag,p) for p in range(page,page+GelbooruMan.PageThreadSpike)]
-            gevent.joinall(jobs,timeout=5)
+            gevent.joinall(jobs)
             newPageIds = [job.value for job in jobs]
-            for ids in newPageIds:
-                if ids is not None:
-                    NewIds += ids
+            NewIds += list(itertools.chain.from_iterable(newPageIds))
             if(list(map(len,newPageIds)).count(0)!=0):
                 break
         return NewIds
