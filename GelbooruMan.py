@@ -170,7 +170,7 @@ class GelbooruMan:
 
     def unsubsribeTag(self, tag: list):
         # Delete all tag_ids has this tag, and remove tag
-        if not self.tagman().IsExistTag(conn, tag):
+        if not self.tagman().IsExistTag(tag):
             print("Does not exist this tag.")
         else:
             self.tagman().DeleteTag(tag)
@@ -222,7 +222,7 @@ class TagManager:
         c.execute(
             '''DELETE FROM tag_ids WHERE tag_ids.tid = {0};'''.format(tid))
         c.execute(
-            '''DELETE FROM tag_ids_unread WHERE tag_ids.tid = {0};'''.format(tid))
+            '''DELETE FROM tag_ids_unread WHERE tag_ids_unread.tid = {0};'''.format(tid))
         c.execute('''DELETE FROM tags WHERE tags.tid = {0};'''.format(tid))
         self.conn.commit()
 
