@@ -304,22 +304,28 @@ class TagManager:
 def Help():
     print("""0-> checkTagUpdates(),
 1-> ListTag, 2-> SubscribeTagX, 3-> UnsubscribeTagX,
-4-> commitFromPageN,   5-> commitFromPidX,  6-> Help,
-9-> Exit""")
+4-> commitFromPageN,   5-> commitFromPidX,  
+? or h -> Help,  q or e -> Exit""")
 if __name__ == '__main__':
     # logging.basicConfig(level=logging.DEBUG)
     gelman = GelbooruMan()
-    Dic = {0: gelman.checkUpdates, 1: gelman.listTag, 2: gelman.subscribeTag, 3: gelman.unsubsribeTag,
-           4: gelman.commitFromPage, 5: gelman.commitFromPid, 6: Help, 9: exit}
+    Dic = {'0': gelman.checkUpdates, '1': gelman.listTag, '2': gelman.subscribeTag, '3': gelman.unsubsribeTag,
+           '4': gelman.commitFromPage, '5': gelman.commitFromPid, 'h': Help, '?': Help, 'q': exit, 'e':exit}
     Help()
     while True:
-        Sel = int(input(">>"))
-        if(4 <= Sel <= 5):
-            Tag = input("Tag>>").split(" ")
-            Num = int(input("PageNum or PID>>"))
-            Dic[Sel](Tag, Num)
-        elif (2 <= Sel <= 3):
-            Tag = input("Tag>>").split(" ")
-            Dic[Sel](Tag)
-        else:
-            Dic[Sel]()
+        try:
+            Sel = input(">>")
+            if Sel.isdigit():
+                if(4 <= int(Sel) <= 5):
+                    Tag = input("Tag>>").split(" ")
+                    Num = int(input("PageNum or PID>>"))
+                    Dic[Sel](Tag, Num)
+                elif (2 <= int(Sel) <= 3):
+                    Tag = input("Tag>>").split(" ")
+                    Dic[Sel](Tag)
+                else:
+                    Dic[Sel]()
+            else:
+                Dic[Sel]()
+        except KeyError:
+            print("Unsupported command.")
