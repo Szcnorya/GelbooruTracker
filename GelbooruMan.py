@@ -221,6 +221,8 @@ class TagManager:
         c = self.conn.cursor()
         c.execute(
             '''DELETE FROM tag_ids WHERE tag_ids.tid = {0};'''.format(tid))
+        c.execute(
+            '''DELETE FROM tag_ids_unread WHERE tag_ids.tid = {0};'''.format(tid))
         c.execute('''DELETE FROM tags WHERE tags.tid = {0};'''.format(tid))
         self.conn.commit()
 
